@@ -22,6 +22,11 @@ inputs:
     type: string
     required: false
     default: ''
+  branch:
+    description: 'Name of the branch to create/update with the translated files. Default: "docs-translations"'
+    type: string
+    required: false
+    default: 'docs-translations'
   deepl_api_key:
     description: 'deepl API KEY for automatic translation; If provided, missing translations will be automatically translated using deepl API. Please create a free account on https://www.deepl.com'
     type: string
@@ -68,8 +73,8 @@ runs:
       - name: Open translation pull request
         uses: peter-evans/create-pull-request@v8
         with:
-          branch: docs-translations
+          branch: ${{ inputs.branch }}
           delete-branch: true
           title: "[CI] Update docs translations"
           commit-message: "chore(docs): update translations"
-          body: "Automated translations done by [Mips2648/docs-translations workflow](https://github.com/Mips2648/docs-translations)"
+          body: "Automated translations done by [jeedom/jeetranslate-docs workflow](https://github.com/jeedom/jeetranslate-docs)"
