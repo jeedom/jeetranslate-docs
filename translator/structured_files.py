@@ -1,23 +1,47 @@
-from typing import List
-from dataclasses import field
+from typing import List, Tuple
 
 import re
 from pathlib import Path
 
-IMAGE_ONLY_RE = re.compile(r"^!\[([^\]]*)\]\(([^)]+)\)\s*$")
-LINK_ONLY_RE = re.compile(r"^\[([^\]]+)\]\(([^)]+)\)\s*$")
 HEADING_RE = re.compile(r"^(#{1,6}\s+)(.+)$")
 LIST_RE = re.compile(r"^(\s*(?:(?:[-*+]\s+|\d+\.\s+|>\s+)+))(.+)$")
 FRONT_MATTER_LINE_RE = re.compile(r"^(\s*)([^:#][^:]*?)(\s*:\s*)(.*)$")
 FRONT_MATTER_TEXT_KEYS = {"title", "description", "summary", "excerpt", "subtitle", "headline", "lang"}
 
+# A markdown link or image, e.g. [text](target) / ![alt](target), optionally followed by a
+# kramdown IAL (e.g. {:target="_blank"}). The target must never reach DeepL: it's a URL/path,
+# and a general-purpose translator can't tell an identifier from a real word.
+# MEDIA_DECOMPOSE_RE re-parses a MEDIA_RE match to isolate the label; keep both in sync, an
+# unrecognized shape silently falls back to fully opaque rather than raising an error.
+MEDIA_RE = re.compile(r"!?\[[^\]]*\]\([^)]+\)(?:\{:[^}]*\})?")
+MEDIA_DECOMPOSE_RE = re.compile(r"^(!?\[)([^\]]*)(\]\([^)]+\)(?:\{:[^}]*\})?)$")
+# Jekyll/Liquid tags (e.g. {% include some_partial.html src="..." %}) are template directives,
+# not prose: kept opaque entirely, including any human-readable attribute like title="...".
+LIQUID_TAG_RE = re.compile(r"\{%.*?%\}")
+# Raw HTML tags: only the tags themselves are protected, any real text between two tags
+# (e.g. <strong>Attention</strong>) is still picked up as its own translatable segment.
+HTML_TAG_RE = re.compile(r"<[^>]+>")
+# Inline code spans (single or double backtick) often hold a literal URL/path/hostname
+# (e.g. ``https://mondomain.tld``); double-backtick must be tried before single-backtick
+# so a double-backtick span isn't mistaken for two single-backtick ones.
+INLINE_CODE_RE = re.compile(r"``[^`]+``|`[^`]+`")
+# A bare URL with no markdown/HTML wrapping at all (just typed directly in prose).
+BARE_URL_RE = re.compile(r"https?://\S+")
+PROTECTED_RE = re.compile(
+    f"(?:{MEDIA_RE.pattern})"
+    f"|(?:{INLINE_CODE_RE.pattern})"
+    f"|(?:{BARE_URL_RE.pattern})"
+    f"|(?:{LIQUID_TAG_RE.pattern})"
+    f"|(?:{HTML_TAG_RE.pattern})"
+)
+
 
 class _Line():
-    def __init__(self, translatable: bool, prefix: str, text: str, suffix: str):
-        self.is_translatable = translatable
-        self.prefix = prefix
-        self.text = text
-        self.suffix = suffix
+    def __init__(self, segments: List[Tuple[bool, str]]):
+        self.segments = segments
+
+    def translatable_texts(self) -> set[str]:
+        return {text for is_translatable, text in self.segments if is_translatable}
 
 
 class StructuredMarkdownFile():
@@ -45,16 +69,28 @@ class StructuredMarkdownFile():
             self.__parse_line(src_line)
 
     def get_translatable_texts(self) -> set[str]:
-        return {line.text for line in self.__parsed_source_lines if line.is_translatable}
+        texts: set[str] = set()
+        for line in self.__parsed_source_lines:
+            texts.update(line.translatable_texts())
+        return texts
 
     def get_parsed_lines(self) -> list[_Line]:
         return list(self.__parsed_source_lines)
 
     def __add_non_translatable_line(self, line: str) -> None:
-        self.__parsed_source_lines.append(_Line(False, "", line, ""))
+        self.__parsed_source_lines.append(_Line([(False, line)]))
 
     def __add_translatable_line(self, prefix: str, line: str, suffix: str = "") -> None:
-        self.__parsed_source_lines.append(_Line(True, prefix, line, suffix))
+        segments: List[Tuple[bool, str]] = []
+        if prefix:
+            segments.append((False, prefix))
+        segments.append((True, line))
+        if suffix:
+            segments.append((False, suffix))
+        self.__parsed_source_lines.append(_Line(segments))
+
+    def __add_segments_line(self, segments: List[Tuple[bool, str]]) -> None:
+        self.__parsed_source_lines.append(_Line(segments))
 
     def __process_front_matter_line(
         self,
@@ -123,51 +159,53 @@ class StructuredMarkdownFile():
             self.__add_non_translatable_line(line)
             return
 
-        image = IMAGE_ONLY_RE.match(stripped)
-        if image:
-            alt_text = image.group(1)
-            target = image.group(2)
-            if alt_text and self.__looks_translatable(alt_text):
-                self.__add_translatable_line("![", alt_text, f"]({target})")
-                return
-            self.__add_non_translatable_line(line)
-            return
-
-        link = LINK_ONLY_RE.match(stripped)
-        if link:
-            link_text = link.group(1)
-            target = link.group(2)
-            if link_text and self.__looks_translatable(link_text):
-                self.__add_translatable_line("[", link_text, f"]({target})")
-                return
-            self.__add_non_translatable_line(line)
-            return
-
         heading = HEADING_RE.match(stripped)
         if heading:
-            text = heading.group(2).strip()
-            if self.__looks_translatable(text):
-                self.__add_translatable_line(heading.group(1), text)
-                return
-            self.__add_non_translatable_line(line)
+            rest = heading.group(2).strip()
+            self.__add_segments_line([(False, heading.group(1))] + self.__split_protected(rest))
             return
 
         list_item = LIST_RE.match(stripped)
         if list_item:
-            text = list_item.group(2).strip()
-            if self.__looks_translatable(text):
-                self.__add_translatable_line(list_item.group(1), text)
-                return
-            self.__add_non_translatable_line(line)
+            rest = list_item.group(2).strip()
+            self.__add_segments_line([(False, list_item.group(1))] + self.__split_protected(rest))
             return
 
         plain = stripped.strip()
-        if self.__looks_translatable(plain):
-            self.__add_translatable_line("", plain)
-            return
+        self.__add_segments_line(self.__split_protected(plain))
 
-        self.__add_non_translatable_line(line)
-        return
+    def __split_protected(self, text: str) -> List[Tuple[bool, str]]:
+        """Split a line into (is_translatable, text) segments, keeping link/image targets,
+        Liquid tags and HTML tags out of anything that gets sent to DeepL, wherever in the
+        line they appear (not just when they make up the whole line)."""
+        segments: List[Tuple[bool, str]] = []
+        pos = 0
+        for match in PROTECTED_RE.finditer(text):
+            if match.start() > pos:
+                segments.append(self.__gap_segment(text[pos:match.start()]))
+            segments.extend(self.__decompose_protected(match.group()))
+            pos = match.end()
+        if pos < len(text):
+            segments.append(self.__gap_segment(text[pos:]))
+        if not segments:
+            segments.append((False, text))
+        return segments
+
+    def __gap_segment(self, text: str) -> Tuple[bool, str]:
+        return (True, text) if self.__looks_translatable(text) else (False, text)
+
+    def __decompose_protected(self, matched: str) -> List[Tuple[bool, str]]:
+        if matched.startswith("[") or matched.startswith("!["):
+            media_match = MEDIA_DECOMPOSE_RE.match(matched)
+            if media_match:
+                prefix, label, suffix = media_match.group(1), media_match.group(2), media_match.group(3)
+                # A link's label can itself be a bare URL (e.g. the target repeated as its
+                # own display text): still not prose, must not be translated either.
+                if label and self.__looks_translatable(label) and not BARE_URL_RE.fullmatch(label.strip()):
+                    return [(False, prefix), (True, label), (False, suffix)]
+            return [(False, matched)]
+        # Liquid tag or raw HTML tag: always opaque.
+        return [(False, matched)]
 
     def __looks_translatable(self, text: str) -> bool:
         # If there are no alphabetic chars, skip to avoid wasting API queries.

@@ -127,3 +127,221 @@ def test_start_translates_nested_source_language_directories(tmp_path: Path) -> 
     target2 = tmp_path / "docs" / "plugin1" / "beta" / "en_US" / "index.md"
     assert target2.exists(), "Expected translated file at plugin1/beta/en_US/index.md"
     assert target2.read_text(encoding="utf-8") == "# Beta\n"
+
+
+def test_process_file_protects_link_target_embedded_mid_sentence(tmp_path: Path) -> None:
+    """A markdown link embedded in the middle of a sentence (not alone on its own line)
+    must keep its target and anchor untouched: DeepL only ever sees the link's label and
+    the surrounding prose, never the URL."""
+    translator = Translator(
+        deepl_api_key="dummy-key",
+        target_languages=ALL_LANGUAGES,
+        cwd=tmp_path
+    )
+    mapping = {
+        "Consulter la documentation relative à la ": "Refer to the documentation on ",
+        "**première connexion**": "**first-time login**",
+        " pour accéder à l'interface Jeedom suite à l'installation.": " to access the Jeedom interface after installation.",
+    }
+    translator._deepl_translate = lambda target_lang, texts: [mapping[t] for t in texts]
+
+    src_root = tmp_path / "docs" / FR_FR
+    target_root = tmp_path / "docs" / "en_US"
+    src_root.mkdir(parents=True)
+
+    src_file = src_root / "index.md"
+    target_file = target_root / "index.md"
+    src_file.write_text(
+        "Consulter la documentation relative à la [**première connexion**](/premiers-pas/#Première%20connexion) pour accéder à l'interface Jeedom suite à l'installation.\n",
+        encoding="utf-8",
+    )
+
+    parsed_file = StructuredMarkdownFile(src_file)
+    parsed_file.parse()
+
+    translator._write_target_file(parsed_file, "en_US", target_file)
+
+    assert target_file.read_text(encoding="utf-8") == (
+        "Refer to the documentation on [**first-time login**](/premiers-pas/#Première%20connexion) to access the Jeedom interface after installation.\n"
+    )
+
+
+def test_process_file_excludes_liquid_tag_from_translation(tmp_path: Path) -> None:
+    """A Jekyll/Liquid tag (e.g. an image include with a src path) is a template directive,
+    not prose: it must never be sent to DeepL, so a filename that happens to look like French
+    words can't get mistranslated."""
+    translator = Translator(
+        deepl_api_key="dummy-key",
+        target_languages=ALL_LANGUAGES,
+        cwd=tmp_path
+    )
+
+    def fail_if_called(target_lang, texts):
+        raise AssertionError(f"DeepL should not be called for a Liquid tag line, got: {texts}")
+
+    translator._deepl_translate = fail_if_called
+
+    src_root = tmp_path / "docs" / FR_FR
+    target_root = tmp_path / "docs" / "en_US"
+    src_root.mkdir(parents=True)
+
+    src_file = src_root / "index.md"
+    target_file = target_root / "index.md"
+    line = '{% include lightbox.html src="../images/tableau-comparatif-atlas-et-luna.jpg" title="Jeedom Atlas & Jeedom Luna" %}\n'
+    src_file.write_text(line, encoding="utf-8")
+
+    parsed_file = StructuredMarkdownFile(src_file)
+    parsed_file.parse()
+
+    translator._write_target_file(parsed_file, "en_US", target_file)
+
+    assert target_file.read_text(encoding="utf-8") == line
+
+
+def test_process_file_excludes_html_only_line_from_translation(tmp_path: Path) -> None:
+    """A line that is pure HTML markup with no real prose (e.g. a search bar placeholder div)
+    must not be sent to DeepL at all."""
+    translator = Translator(
+        deepl_api_key="dummy-key",
+        target_languages=ALL_LANGUAGES,
+        cwd=tmp_path
+    )
+
+    def fail_if_called(target_lang, texts):
+        raise AssertionError(f"DeepL should not be called for a markup-only line, got: {texts}")
+
+    translator._deepl_translate = fail_if_called
+
+    src_root = tmp_path / "docs" / FR_FR
+    target_root = tmp_path / "docs" / "en_US"
+    src_root.mkdir(parents=True)
+
+    src_file = src_root / "index.md"
+    target_file = target_root / "index.md"
+    line = '<div id="div_searchBar"></div>\n'
+    src_file.write_text(line, encoding="utf-8")
+
+    parsed_file = StructuredMarkdownFile(src_file)
+    parsed_file.parse()
+
+    translator._write_target_file(parsed_file, "en_US", target_file)
+
+    assert target_file.read_text(encoding="utf-8") == line
+
+
+def test_process_file_translates_text_between_html_tags(tmp_path: Path) -> None:
+    """Real prose sitting between HTML tags is still translated; only the tags themselves
+    are protected."""
+    translator = Translator(
+        deepl_api_key="dummy-key",
+        target_languages=ALL_LANGUAGES,
+        cwd=tmp_path
+    )
+    mapping = {
+        "Bonjour": "Hello",
+        " le monde.": " world.",
+    }
+    translator._deepl_translate = lambda target_lang, texts: [mapping[t] for t in texts]
+
+    src_root = tmp_path / "docs" / FR_FR
+    target_root = tmp_path / "docs" / "en_US"
+    src_root.mkdir(parents=True)
+
+    src_file = src_root / "index.md"
+    target_file = target_root / "index.md"
+    src_file.write_text("<strong>Bonjour</strong> le monde.\n", encoding="utf-8")
+
+    parsed_file = StructuredMarkdownFile(src_file)
+    parsed_file.parse()
+
+    translator._write_target_file(parsed_file, "en_US", target_file)
+
+    assert target_file.read_text(encoding="utf-8") == "<strong>Hello</strong> world.\n"
+
+
+def test_process_file_protects_bare_url_in_prose(tmp_path: Path) -> None:
+    """A URL typed directly in prose, with no markdown/HTML wrapping at all, must still
+    never be sent to DeepL."""
+    translator = Translator(
+        deepl_api_key="dummy-key",
+        target_languages=ALL_LANGUAGES,
+        cwd=tmp_path
+    )
+    mapping = {
+        "Puis rendez-vous sur ": "Then go to ",
+    }
+    translator._deepl_translate = lambda target_lang, texts: [mapping[t] for t in texts]
+
+    src_root = tmp_path / "docs" / FR_FR
+    target_root = tmp_path / "docs" / "en_US"
+    src_root.mkdir(parents=True)
+
+    src_file = src_root / "index.md"
+    target_file = target_root / "index.md"
+    src_file.write_text("- Puis rendez-vous sur http://jeedomatlasrecovery.local/\n", encoding="utf-8")
+
+    parsed_file = StructuredMarkdownFile(src_file)
+    parsed_file.parse()
+
+    translator._write_target_file(parsed_file, "en_US", target_file)
+
+    assert target_file.read_text(encoding="utf-8") == "- Then go to http://jeedomatlasrecovery.local/\n"
+
+
+def test_process_file_protects_url_inside_double_backtick_code_span(tmp_path: Path) -> None:
+    """A URL wrapped in a double-backtick inline code span must never be sent to DeepL,
+    even though it contains no markdown link syntax; the surrounding prose is still translated."""
+    translator = Translator(
+        deepl_api_key="dummy-key",
+        target_languages=ALL_LANGUAGES,
+        cwd=tmp_path
+    )
+    mapping = {
+        "Serveur:Port : ": "Server:Port: ",
+    }
+    translator._deepl_translate = lambda target_lang, texts: [mapping[t] for t in texts]
+
+    src_root = tmp_path / "docs" / FR_FR
+    target_root = tmp_path / "docs" / "en_US"
+    src_root.mkdir(parents=True)
+
+    src_file = src_root / "index.md"
+    target_file = target_root / "index.md"
+    src_file.write_text("-   Serveur:Port : ``https://mondomain.tld``\n", encoding="utf-8")
+
+    parsed_file = StructuredMarkdownFile(src_file)
+    parsed_file.parse()
+
+    translator._write_target_file(parsed_file, "en_US", target_file)
+
+    assert target_file.read_text(encoding="utf-8") == "-   Server:Port: ``https://mondomain.tld``\n"
+
+
+def test_process_file_does_not_translate_link_label_that_is_itself_a_url(tmp_path: Path) -> None:
+    """When a link's visible label is itself a bare URL (e.g. the link target repeated as
+    its own display text), that label must not be sent to DeepL either."""
+    translator = Translator(
+        deepl_api_key="dummy-key",
+        target_languages=ALL_LANGUAGES,
+        cwd=tmp_path
+    )
+    # Only the text before the link is a genuine translatable string; if the URL-as-label
+    # were (incorrectly) sent too, the lookup below would raise a KeyError.
+    mapping = {"| **Smart** | ": "| **Smart** | "}
+    translator._deepl_translate = lambda target_lang, texts: [mapping[t] for t in texts]
+
+    src_root = tmp_path / "docs" / FR_FR
+    target_root = tmp_path / "docs" / "en_US"
+    src_root.mkdir(parents=True)
+
+    src_file = src_root / "index.md"
+    target_file = target_root / "index.md"
+    line = '| **Smart** | [http://jeedomsmart.local](http://jeedomsmart.local){:target="_blank"} |\n'
+    src_file.write_text(line, encoding="utf-8")
+
+    parsed_file = StructuredMarkdownFile(src_file)
+    parsed_file.parse()
+
+    translator._write_target_file(parsed_file, "en_US", target_file)
+
+    assert target_file.read_text(encoding="utf-8") == line

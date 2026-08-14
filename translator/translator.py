@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-import re
 from pathlib import Path
 from typing import List
 from itertools import islice
@@ -21,14 +20,6 @@ from .consts import (
     LANGUAGES_TO_DEEPL_GLOSSARY,
     LOG_FORMAT,
 )
-
-IMAGE_ONLY_RE = re.compile(r"^!\[([^\]]*)\]\(([^)]+)\)\s*$")
-LINK_ONLY_RE = re.compile(r"^\[([^\]]+)\]\(([^)]+)\)\s*$")
-HEADING_RE = re.compile(r"^(#{1,6}\s+)(.+)$")
-LIST_RE = re.compile(r"^(\s*(?:(?:[-*+]\s+|\d+\.\s+|>\s+)+))(.+)$")
-FRONT_MATTER_LINE_RE = re.compile(r"^(\s*)([^:#][^:]*?)(\s*:\s*)(.*)$")
-FRONT_MATTER_TEXT_KEYS = {"title", "description", "summary", "excerpt", "subtitle", "headline"}
-
 
 class Translator:
 
@@ -145,14 +136,17 @@ class Translator:
         lang_memory = self.__translation_memory.get_language_memory(language)
 
         for line in parsed_file.get_parsed_lines():
-            if not line.is_translatable:
-                out_lines.append(line.text)
-                continue
-            if line.text not in lang_memory:
-                self.__logger.warning(f"Missing translation for language '{language}': '{line.text}' in file ./{parsed_file.src_file.relative_to(self.__cwd)}")
-                out_lines.append(f"{line.prefix}{line.text}{line.suffix}")
-                continue
-            out_lines.append(f"{line.prefix}{lang_memory[line.text]}{line.suffix}")
+            rendered_segments: List[str] = []
+            for is_translatable, text in line.segments:
+                if not is_translatable:
+                    rendered_segments.append(text)
+                    continue
+                if text not in lang_memory:
+                    self.__logger.warning(f"Missing translation for language '{language}': '{text}' in file ./{parsed_file.src_file.relative_to(self.__cwd)}")
+                    rendered_segments.append(text)
+                    continue
+                rendered_segments.append(lang_memory[text])
+            out_lines.append("".join(rendered_segments))
 
         new_content = "\n".join(out_lines) + "\n"
         old_content = target_file.read_text(encoding="utf-8") if target_file.exists() else ""
