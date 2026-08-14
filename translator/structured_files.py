@@ -8,6 +8,12 @@ LIST_RE = re.compile(r"^(\s*(?:(?:[-*+]\s+|\d+\.\s+|>\s+)+))(.+)$")
 FRONT_MATTER_LINE_RE = re.compile(r"^(\s*)([^:#][^:]*?)(\s*:\s*)(.*)$")
 FRONT_MATTER_TEXT_KEYS = {"title", "description", "summary", "excerpt", "subtitle", "headline", "lang"}
 
+# A clickable image, e.g. [![alt](image_target)](link_target) (an app-store badge, a video
+# thumbnail...), optionally followed by a kramdown IAL. Matched before MEDIA_RE: [^\]]* isn't
+# bracket-depth-aware, so on this nested shape MEDIA_RE would stop at the image's own closing
+# "]" and fold the leading "![" into what it thinks is the link's label.
+LINKED_IMAGE_RE = re.compile(r"\[!\[[^\]]*\]\([^)]+\)\]\([^)]+\)(?:\{:[^}]*\})?")
+LINKED_IMAGE_DECOMPOSE_RE = re.compile(r"^(\[!\[)([^\]]*)(\]\([^)]+\)\]\([^)]+\)(?:\{:[^}]*\})?)$")
 # A markdown link or image, e.g. [text](target) / ![alt](target), optionally followed by a
 # kramdown IAL (e.g. {:target="_blank"}). The target must never reach DeepL: it's a URL/path,
 # and a general-purpose translator can't tell an identifier from a real word.
@@ -28,7 +34,8 @@ INLINE_CODE_RE = re.compile(r"``[^`]+``|`[^`]+`")
 # A bare URL with no markdown/HTML wrapping at all (just typed directly in prose).
 BARE_URL_RE = re.compile(r"https?://\S+")
 PROTECTED_RE = re.compile(
-    f"(?:{MEDIA_RE.pattern})"
+    f"(?:{LINKED_IMAGE_RE.pattern})"
+    f"|(?:{MEDIA_RE.pattern})"
     f"|(?:{INLINE_CODE_RE.pattern})"
     f"|(?:{BARE_URL_RE.pattern})"
     f"|(?:{LIQUID_TAG_RE.pattern})"
@@ -195,16 +202,21 @@ class StructuredMarkdownFile():
         return (True, text) if self.__looks_translatable(text) else (False, text)
 
     def __decompose_protected(self, matched: str) -> List[Tuple[bool, str]]:
+        if matched.startswith("[!["):
+            return self.__decompose_media(matched, LINKED_IMAGE_DECOMPOSE_RE)
         if matched.startswith("[") or matched.startswith("!["):
-            media_match = MEDIA_DECOMPOSE_RE.match(matched)
-            if media_match:
-                prefix, label, suffix = media_match.group(1), media_match.group(2), media_match.group(3)
-                # A link's label can itself be a bare URL (e.g. the target repeated as its
-                # own display text): still not prose, must not be translated either.
-                if label and self.__looks_translatable(label) and not BARE_URL_RE.fullmatch(label.strip()):
-                    return [(False, prefix), (True, label), (False, suffix)]
-            return [(False, matched)]
+            return self.__decompose_media(matched, MEDIA_DECOMPOSE_RE)
         # Liquid tag or raw HTML tag: always opaque.
+        return [(False, matched)]
+
+    def __decompose_media(self, matched: str, decompose_re: re.Pattern) -> List[Tuple[bool, str]]:
+        media_match = decompose_re.match(matched)
+        if media_match:
+            prefix, label, suffix = media_match.group(1), media_match.group(2), media_match.group(3)
+            # A link's label can itself be a bare URL (e.g. the target repeated as its own
+            # display text): still not prose, must not be translated either.
+            if label and self.__looks_translatable(label) and not BARE_URL_RE.fullmatch(label.strip()):
+                return [(False, prefix), (True, label), (False, suffix)]
         return [(False, matched)]
 
     def __looks_translatable(self, text: str) -> bool:

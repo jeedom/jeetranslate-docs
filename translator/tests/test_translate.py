@@ -345,3 +345,32 @@ def test_process_file_does_not_translate_link_label_that_is_itself_a_url(tmp_pat
     translator._write_target_file(parsed_file, "en_US", target_file)
 
     assert target_file.read_text(encoding="utf-8") == line
+
+
+def test_process_file_translates_only_the_alt_text_of_a_clickable_image(tmp_path: Path) -> None:
+    """A clickable image ([![alt](image_target)](link_target), e.g. an app-store badge or a
+    video thumbnail) must only expose the alt text to DeepL: nested brackets previously made
+    the leading '![' of the inner image leak into what was sent for translation."""
+    translator = Translator(
+        deepl_api_key="dummy-key",
+        target_languages=ALL_LANGUAGES,
+        cwd=tmp_path
+    )
+    mapping = {"Disassembly/reassembly video": "Disassembly/reassembly video"}
+    translator._deepl_translate = lambda target_lang, texts: [mapping[t] for t in texts]
+
+    src_root = tmp_path / "docs" / FR_FR
+    target_root = tmp_path / "docs" / "en_US"
+    src_root.mkdir(parents=True)
+
+    src_file = src_root / "index.md"
+    target_file = target_root / "index.md"
+    line = '[![Disassembly/reassembly video](https://img.youtube.com/vi/abc123/hqdefault.jpg)](https://youtu.be/abc123){:target="_blank"}\n'
+    src_file.write_text(line, encoding="utf-8")
+
+    parsed_file = StructuredMarkdownFile(src_file)
+    parsed_file.parse()
+
+    translator._write_target_file(parsed_file, "en_US", target_file)
+
+    assert target_file.read_text(encoding="utf-8") == line
