@@ -374,3 +374,35 @@ def test_process_file_translates_only_the_alt_text_of_a_clickable_image(tmp_path
     translator._write_target_file(parsed_file, "en_US", target_file)
 
     assert target_file.read_text(encoding="utf-8") == line
+
+
+def test_process_file_localizes_only_doc_site_links(tmp_path: Path) -> None:
+    """A doc.jeedom.com link hardcoded to fr_FR must point to the output language instead,
+    but a link to some other host containing that same literal text must stay untouched."""
+    translator = Translator(
+        deepl_api_key="dummy-key",
+        target_languages=ALL_LANGUAGES,
+        cwd=tmp_path
+    )
+
+    src_root = tmp_path / "docs" / FR_FR
+    target_root = tmp_path / "docs" / "en_US"
+    src_root.mkdir(parents=True)
+
+    src_file = src_root / "index.md"
+    target_file = target_root / "index.md"
+    src_file.write_text(
+        "https://doc.jeedom.com/contribute/fr_FR/beta\n"
+        "https://mondomain.tld/fr_FR/page\n",
+        encoding="utf-8",
+    )
+
+    parsed_file = StructuredMarkdownFile(src_file)
+    parsed_file.parse()
+
+    translator._write_target_file(parsed_file, "en_US", target_file)
+
+    assert target_file.read_text(encoding="utf-8") == (
+        "https://doc.jeedom.com/contribute/en_US/beta\n"
+        "https://mondomain.tld/fr_FR/page\n"
+    )

@@ -41,3 +41,5 @@ INPUT_DEBUG = 'debug'
 
 DEFAULT_DOCS_ROOT = 'docs'
 DEFAULT_MEMORY_SUB_PATH = '.translation_memory'
+
+DOC_SITE_HOST = 'doc.jeedom.com'

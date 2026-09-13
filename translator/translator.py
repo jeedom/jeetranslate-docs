@@ -16,6 +16,7 @@ from .consts import (
     DEFAULT_MEMORY_SUB_PATH,
     FR_FR,
     DEFAULT_DOCS_ROOT,
+    DOC_SITE_HOST,
     LANGUAGES_TO_DEEPL,
     LANGUAGES_TO_DEEPL_GLOSSARY,
     LOG_FORMAT,
@@ -139,7 +140,7 @@ class Translator:
             rendered_segments: List[str] = []
             for is_translatable, text in line.segments:
                 if not is_translatable:
-                    rendered_segments.append(text)
+                    rendered_segments.append(self.__localize_doc_links(text, language))
                     continue
                 if text not in lang_memory:
                     self.__logger.warning(f"Missing translation for language '{language}': '{text}' in file ./{parsed_file.src_file.relative_to(self.__cwd)}")
@@ -159,6 +160,11 @@ class Translator:
             self.__updated_files_count += 1
 
         return
+
+    def __localize_doc_links(self, text: str, language: str) -> str:
+        if DOC_SITE_HOST in text and f"/{self.__source_language}" in text:
+            return text.replace(self.__source_language, language)
+        return text
 
     def _ensure_translation_exists(self, language: str, parsed_file: StructuredMarkdownFile) -> None:
         """Ensure that all translatable texts in the parsed file have translations in the memory for the given language."""
