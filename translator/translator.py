@@ -8,7 +8,7 @@ from itertools import islice
 import deepl
 from deepl.api_data import MultilingualGlossaryInfo
 
-from .structured_files import StructuredMarkdownFile
+from .structured_files import BARE_URL_RE, StructuredMarkdownFile
 from .translation_memory import TranslationMemory
 
 from .version import VERSION
@@ -37,6 +37,7 @@ class Translator:
         self.__cwd = cwd.resolve()
         if docs_roots is None:
             docs_roots = [DEFAULT_DOCS_ROOT]
+        self.__docs_roots_names: list[str] = docs_roots
         self.__docs_roots: list[Path] = [self.__cwd / r for r in docs_roots]
         if memory_path is not None:
             self.__translation_memory_path = Path(memory_path)
@@ -162,7 +163,11 @@ class Translator:
         return
 
     def __localize_doc_links(self, text: str, language: str) -> str:
-        if DOC_SITE_HOST in text and f"/{self.__source_language}" in text:
+        if f"/{self.__source_language}" not in text:
+            return text
+        if BARE_URL_RE.search(text) and DOC_SITE_HOST not in text:
+            return text
+        if DOC_SITE_HOST in text or any(f"/{root}/" in text for root in self.__docs_roots_names):
             return text.replace(self.__source_language, language)
         return text
 
