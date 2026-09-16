@@ -414,3 +414,44 @@ def test_process_file_localizes_only_doc_site_links(tmp_path: Path) -> None:
         "[Elsewhere](/notaroot/fr_FR/page.md)\n"
         "[docs/fr_FR/recovery.md](https://github.com/jeedom/documentations/blob/master/docs/fr_FR/recovery.md)\n"
     )
+
+
+def test_start_localizes_link_anchors(tmp_path: Path) -> None:
+    """A link's #anchor is rewritten to the target heading's translated, kramdown-slugified
+    id: cross-file, same-page, and left untouched on an external link."""
+    translator = Translator(
+        deepl_api_key="dummy-key",
+        target_languages=["en_US"],
+        cwd=tmp_path,
+        docs_roots=["installation", "premiers-pas"],
+        memory_path=str(tmp_path / "memory.json"),
+    )
+    mapping = {"Accès local": "Local access", "ici": "here", "ailleurs": "elsewhere"}
+    translator._deepl_translate = lambda target_lang, texts: [mapping[t] for t in texts]
+
+    pp_src = tmp_path / "premiers-pas" / FR_FR
+    pp_src.mkdir(parents=True)
+    (pp_src / "index.md").write_text("# Accès local\n", encoding="utf-8")
+
+    inst_src = tmp_path / "installation" / FR_FR
+    inst_src.mkdir(parents=True)
+    (inst_src / "recovery.md").write_text(
+        "# Accès local\n"
+        "\n"
+        "[ici](../../premiers-pas/fr_FR/index.md#accès-local)\n"
+        "[ici](#accès-local)\n"
+        "[ailleurs](https://example.com/page#accès-local)\n",
+        encoding="utf-8",
+    )
+
+    result = translator.start()
+    assert result == 0
+
+    target = tmp_path / "installation" / "en_US" / "recovery.md"
+    assert target.read_text(encoding="utf-8") == (
+        "# Local access\n"
+        "\n"
+        "[here](../../premiers-pas/en_US/index.md#local-access)\n"
+        "[here](#local-access)\n"
+        "[elsewhere](https://example.com/page#accès-local)\n"
+    )

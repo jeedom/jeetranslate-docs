@@ -8,7 +8,7 @@ from itertools import islice
 import deepl
 from deepl.api_data import MultilingualGlossaryInfo
 
-from .structured_files import BARE_URL_RE, StructuredMarkdownFile
+from .structured_files import BARE_URL_RE, LINK_WITH_ANCHOR_RE, StructuredMarkdownFile, dedup_slugs
 from .translation_memory import TranslationMemory
 
 from .version import VERSION
@@ -64,6 +64,7 @@ class Translator:
         self.__updated_files_count = 0
 
         self.__translation_memory = TranslationMemory(self.__translation_memory_path, self.__target_languages)
+        self.__files_by_path: dict[Path, StructuredMarkdownFile] = {}
 
         self.__logger.info(f"=== Translate docs module version {VERSION} initialized with deepl version {deepl.__version__} with following options ===")
         self.__logger.info(f"source directories: {[str(r.relative_to(self.__cwd)) for r in self.__docs_roots]}")
@@ -98,6 +99,7 @@ class Translator:
                     parsed_file = StructuredMarkdownFile(src_file_path)
                     parsed_file.parse()
                     parsed_files.append(parsed_file)
+                    self.__files_by_path[parsed_file.src_file.resolve()] = parsed_file
 
                 all_root_files.append((src_root, parsed_files))
 
@@ -141,7 +143,7 @@ class Translator:
             rendered_segments: List[str] = []
             for is_translatable, text in line.segments:
                 if not is_translatable:
-                    rendered_segments.append(self.__localize_doc_links(text, language))
+                    rendered_segments.append(self.__localize_doc_links(text, language, parsed_file.src_file))
                     continue
                 if text not in lang_memory:
                     self.__logger.warning(f"Missing translation for language '{language}': '{text}' in file ./{parsed_file.src_file.relative_to(self.__cwd)}")
@@ -162,7 +164,8 @@ class Translator:
 
         return
 
-    def __localize_doc_links(self, text: str, language: str) -> str:
+    def __localize_doc_links(self, text: str, language: str, src_file: Path) -> str:
+        text = self.__localize_anchor(text, language, src_file)
         if f"/{self.__source_language}" not in text:
             return text
         if BARE_URL_RE.search(text) and DOC_SITE_HOST not in text:
@@ -170,6 +173,32 @@ class Translator:
         if DOC_SITE_HOST in text or any(f"/{root}/" in text for root in self.__docs_roots_names):
             return text.replace(self.__source_language, language)
         return text
+
+    def __localize_anchor(self, text: str, language: str, src_file: Path) -> str:
+        match = LINK_WITH_ANCHOR_RE.search(text)
+        if not match:
+            return text
+        path = match.group(1)
+        if path and BARE_URL_RE.search(path):
+            return text
+        target_file = src_file.resolve() if not path else (src_file.parent / path).resolve()
+        localized_fragment = self.__resolve_target_anchor(target_file, match.group(2), language)
+        if localized_fragment is None:
+            return text
+        return text[:match.start(2)] + localized_fragment + text[match.end(2):]
+
+    def __resolve_target_anchor(self, target_file: Path, fr_fragment: str, language: str) -> str | None:
+        parsed_target = self.__files_by_path.get(target_file)
+        if parsed_target is None:
+            return None
+        headings = parsed_target.get_headings()
+        fr_slugs = dedup_slugs(headings)
+        if fr_fragment not in fr_slugs:
+            return None
+        index = fr_slugs.index(fr_fragment)
+        lang_memory = self.__ensure_texts_translated(language, headings)
+        translated_headings = [lang_memory[h] for h in headings]
+        return dedup_slugs(translated_headings)[index]
 
     def _ensure_translation_exists(self, language: str, parsed_file: StructuredMarkdownFile) -> None:
         """Ensure that all translatable texts in the parsed file have translations in the memory for the given language."""
@@ -193,6 +222,16 @@ class Translator:
                 for src, tgt in zip(batch_texts, translated):
                     self.__translated_lines_count += 1
                     lang_memory[src] = tgt
+
+    def __ensure_texts_translated(self, language: str, texts: List[str]) -> dict:
+        lang_memory = self.__translation_memory.get_language_memory(language)
+        missing = [text for text in dict.fromkeys(texts) if text not in lang_memory]
+        if missing:
+            translated = self._deepl_translate(language, missing)
+            for src, tgt in zip(missing, translated):
+                lang_memory[src] = tgt
+                self.__translated_lines_count += 1
+        return lang_memory
 
     def _deepl_translate(self, target_lang: str, texts: List[str]) -> List[str]:
         if not texts:

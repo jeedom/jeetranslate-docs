@@ -41,6 +41,31 @@ PROTECTED_RE = re.compile(
     f"|(?:{LIQUID_TAG_RE.pattern})"
     f"|(?:{HTML_TAG_RE.pattern})"
 )
+# path is None for a same-page anchor "](#fragment)".
+LINK_WITH_ANCHOR_RE = re.compile(r"\]\(([^)#]+)?#([^)\s{]+)\)")
+
+# Reproduces kramdown's GFM heading-id algorithm (verified against the real gem, not assumed).
+# Falls back to "section" for a heading with nothing left after stripping, like kramdown itself.
+_SLUG_STRIP_RE = re.compile(r"[^\w\s-]", re.UNICODE)
+
+
+def kramdown_slug(text: str) -> str:
+    slug = _SLUG_STRIP_RE.sub("", text).replace(" ", "-").lower()
+    return slug or "section"
+
+
+def dedup_slugs(headings: List[str]) -> List[str]:
+    used: dict = {}
+    result: List[str] = []
+    for heading in headings:
+        base = kramdown_slug(heading)
+        if base in used:
+            used[base] += 1
+            result.append(f"{base}-{used[base]}")
+        else:
+            used[base] = 0
+            result.append(base)
+    return result
 
 
 class _Line():
@@ -56,10 +81,14 @@ class StructuredMarkdownFile():
         self.__src_file = src_file
         self.__parsed_source_lines: List[_Line] = []
         self.__src_lines = src_file.read_text(encoding="utf-8").splitlines()
+        self.__headings: List[str] = []
 
     @property
     def src_file(self) -> Path:
         return self.__src_file
+
+    def get_headings(self) -> List[str]:
+        return self.__headings
 
     def parse(self):
         self._in_front_matter: bool = False
@@ -169,6 +198,7 @@ class StructuredMarkdownFile():
         heading = HEADING_RE.match(stripped)
         if heading:
             rest = heading.group(2).strip()
+            self.__headings.append(rest)
             self.__add_segments_line([(False, heading.group(1))] + self.__split_protected(rest))
             return
 
