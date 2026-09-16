@@ -24,6 +24,8 @@ MEDIA_DECOMPOSE_RE = re.compile(r"^(!?\[)([^\]]*)(\]\([^)]+\)(?:\{:[^}]*\})?)$")
 # Jekyll/Liquid tags (e.g. {% include some_partial.html src="..." %}) are template directives,
 # not prose: kept opaque entirely, including any human-readable attribute like title="...".
 LIQUID_TAG_RE = re.compile(r"\{%.*?%\}")
+# <kbd> represents literal input (HTML spec), never prose: kept fully opaque, tried before HTML_TAG_RE.
+KBD_RE = re.compile(r"(?i:<kbd>.*?</kbd>)")
 # Raw HTML tags: only the tags themselves are protected, any real text between two tags
 # (e.g. <strong>Attention</strong>) is still picked up as its own translatable segment.
 HTML_TAG_RE = re.compile(r"<[^>]+>")
@@ -39,6 +41,7 @@ PROTECTED_RE = re.compile(
     f"|(?:{INLINE_CODE_RE.pattern})"
     f"|(?:{BARE_URL_RE.pattern})"
     f"|(?:{LIQUID_TAG_RE.pattern})"
+    f"|(?:{KBD_RE.pattern})"
     f"|(?:{HTML_TAG_RE.pattern})"
 )
 # path is None for a same-page anchor "](#fragment)".

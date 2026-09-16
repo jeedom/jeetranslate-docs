@@ -231,7 +231,7 @@ def test_process_file_excludes_html_only_line_from_translation(tmp_path: Path) -
 
 def test_process_file_translates_text_between_html_tags(tmp_path: Path) -> None:
     """Real prose sitting between HTML tags is still translated; only the tags themselves
-    are protected."""
+    are protected. <kbd> is the exception: its content is literal input, never sent to DeepL."""
     translator = Translator(
         deepl_api_key="dummy-key",
         target_languages=ALL_LANGUAGES,
@@ -239,7 +239,9 @@ def test_process_file_translates_text_between_html_tags(tmp_path: Path) -> None:
     )
     mapping = {
         "Bonjour": "Hello",
-        " le monde.": " world.",
+        " le monde, appuyez sur ": " world, press ",
+        " ou sur ": " or ",
+        " pour valider.": " to confirm.",
     }
     translator._deepl_translate = lambda target_lang, texts: [mapping[t] for t in texts]
 
@@ -249,14 +251,21 @@ def test_process_file_translates_text_between_html_tags(tmp_path: Path) -> None:
 
     src_file = src_root / "index.md"
     target_file = target_root / "index.md"
-    src_file.write_text("<strong>Bonjour</strong> le monde.\n", encoding="utf-8")
+    src_file.write_text(
+        "<strong>Bonjour</strong> le monde, appuyez sur <kbd>Enter</kbd>"
+        " ou sur <KBD>F5</KBD> pour valider.\n",
+        encoding="utf-8",
+    )
 
     parsed_file = StructuredMarkdownFile(src_file)
     parsed_file.parse()
 
     translator._write_target_file(parsed_file, "en_US", target_file)
 
-    assert target_file.read_text(encoding="utf-8") == "<strong>Hello</strong> world.\n"
+    assert target_file.read_text(encoding="utf-8") == (
+        "<strong>Hello</strong> world, press <kbd>Enter</kbd>"
+        " or <KBD>F5</KBD> to confirm.\n"
+    )
 
 
 def test_process_file_protects_bare_url_in_prose(tmp_path: Path) -> None:
