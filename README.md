@@ -217,7 +217,8 @@ The PR includes changes from all processed roots in the run.
 
 This fork adds the following on top of [Mips2648/docs-translations](https://github.com/Mips2648/docs-translations):
 
-- **Mid-line content protection.** Upstream only protects a link/image when it makes up the *entire* line (`^[text](url)$`). This fork protects links, images, clickable images (`[![alt](img)](link)`), inline code spans, bare URLs, and Jekyll/Liquid and HTML tags **anywhere** in a line, not just when they constitute the whole line. `<kbd>` (case-insensitive) goes further and excludes its own inner content too, since it represents literal input, not prose.
+- **Mid-line link/tag protection, label still translated.** Links, images, clickable images (`[![alt](img)](link)`), and HTML tags are protected **anywhere** in a line, not just when they constitute the whole line; their label or inner text is still extracted and translated.
+- **Fully opaque content, nothing sent to DeepL.** Inline code spans, bare URLs, Jekyll/Liquid tags, `<kbd>` (case-insensitive), and HTML comments are never translated, content included.
 - **Internal doc-link language localization.** A link to `doc.jeedom.com` or to any configured `documents_roots` entry that's hardcoded to the source language gets that language segment rewritten to match each output language (e.g. `doc.jeedom.com/contribute/fr_FR/beta` → `.../en_US/beta` when generating `en_US`).
 - **Heading-anchor translation.** A link's `#anchor` fragment (same-page or cross-file) is resolved against the target heading, translated, and re-slugified to match kramdown's own id generation, instead of staying hardcoded to the source-language anchor text.
 

@@ -26,6 +26,8 @@ MEDIA_DECOMPOSE_RE = re.compile(r"^(!?\[)([^\]]*)(\]\([^)]+\)(?:\{:[^}]*\})?)$")
 LIQUID_TAG_RE = re.compile(r"\{%.*?%\}")
 # <kbd> represents literal input (HTML spec), never prose: kept fully opaque, tried before HTML_TAG_RE.
 KBD_RE = re.compile(r"(?i:<kbd>.*?</kbd>)")
+# HTML comment, kept fully opaque.
+COMMENT_RE = re.compile(r"<!--.*?-->")
 # Raw HTML tags: only the tags themselves are protected, any real text between two tags
 # (e.g. <strong>Attention</strong>) is still picked up as its own translatable segment.
 HTML_TAG_RE = re.compile(r"<[^>]+>")
@@ -42,6 +44,7 @@ PROTECTED_RE = re.compile(
     f"|(?:{BARE_URL_RE.pattern})"
     f"|(?:{LIQUID_TAG_RE.pattern})"
     f"|(?:{KBD_RE.pattern})"
+    f"|(?:{COMMENT_RE.pattern})"
     f"|(?:{HTML_TAG_RE.pattern})"
 )
 # path is None for a same-page anchor "](#fragment)".
@@ -246,7 +249,7 @@ class StructuredMarkdownFile():
             return self.__decompose_media(matched, LINKED_IMAGE_DECOMPOSE_RE)
         if matched.startswith("[") or matched.startswith("!["):
             return self.__decompose_media(matched, MEDIA_DECOMPOSE_RE)
-        # Liquid tag or raw HTML tag: always opaque.
+        # Liquid tag, HTML comment, or raw HTML tag: always opaque.
         return [(False, matched)]
 
     def __decompose_media(self, matched: str, decompose_re: re.Pattern) -> List[Tuple[bool, str]]:

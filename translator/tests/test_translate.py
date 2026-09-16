@@ -231,7 +231,7 @@ def test_process_file_excludes_html_only_line_from_translation(tmp_path: Path) -
 
 def test_process_file_translates_text_between_html_tags(tmp_path: Path) -> None:
     """Real prose sitting between HTML tags is still translated; only the tags themselves
-    are protected. <kbd> is the exception: its content is literal input, never sent to DeepL."""
+    are protected. <kbd> and HTML comments are the exception: fully opaque, never sent to DeepL."""
     translator = Translator(
         deepl_api_key="dummy-key",
         target_languages=ALL_LANGUAGES,
@@ -253,7 +253,8 @@ def test_process_file_translates_text_between_html_tags(tmp_path: Path) -> None:
     target_file = target_root / "index.md"
     src_file.write_text(
         "<strong>Bonjour</strong> le monde, appuyez sur <kbd>Enter</kbd>"
-        " ou sur <KBD>F5</KBD> pour valider.\n",
+        " ou sur <KBD>F5</KBD> pour valider.\n"
+        "<!-- Commentaire avec un signe > à l'intérieur -->\n",
         encoding="utf-8",
     )
 
@@ -265,6 +266,7 @@ def test_process_file_translates_text_between_html_tags(tmp_path: Path) -> None:
     assert target_file.read_text(encoding="utf-8") == (
         "<strong>Hello</strong> world, press <kbd>Enter</kbd>"
         " or <KBD>F5</KBD> to confirm.\n"
+        "<!-- Commentaire avec un signe > à l'intérieur -->\n"
     )
 
 
