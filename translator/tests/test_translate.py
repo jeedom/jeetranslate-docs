@@ -417,8 +417,9 @@ def test_process_file_localizes_only_doc_site_links(tmp_path: Path) -> None:
 
 
 def test_start_localizes_link_anchors(tmp_path: Path) -> None:
-    """A link's #anchor is rewritten to the target heading's translated, kramdown-slugified
-    id: cross-file, same-page, and left untouched on an external link."""
+    """A link's #anchor is rewritten to the target heading's translated, kramdown-slugified id:
+    cross-file, same-page, external link untouched, and a heading with inline code (must stay
+    out of translation like regular prose)."""
     translator = Translator(
         deepl_api_key="dummy-key",
         target_languages=["en_US"],
@@ -426,7 +427,7 @@ def test_start_localizes_link_anchors(tmp_path: Path) -> None:
         docs_roots=["installation", "premiers-pas"],
         memory_path=str(tmp_path / "memory.json"),
     )
-    mapping = {"Accès local": "Local access", "ici": "here", "ailleurs": "elsewhere"}
+    mapping = {"Accès local": "Local access", "ici": "here", "ailleurs": "elsewhere", "Liste ": "List ", "lien": "link"}
     translator._deepl_translate = lambda target_lang, texts: [mapping[t] for t in texts]
 
     pp_src = tmp_path / "premiers-pas" / FR_FR
@@ -437,10 +438,11 @@ def test_start_localizes_link_anchors(tmp_path: Path) -> None:
     inst_src.mkdir(parents=True)
     (inst_src / "recovery.md").write_text(
         "# Accès local\n"
-        "\n"
         "[ici](../../premiers-pas/fr_FR/index.md#accès-local)\n"
         "[ici](#accès-local)\n"
-        "[ailleurs](https://example.com/page#accès-local)\n",
+        "[ailleurs](https://example.com/page#accès-local)\n"
+        "## Liste ``info.json``\n"
+        "[lien](#liste-infojson)\n",
         encoding="utf-8",
     )
 
@@ -450,8 +452,9 @@ def test_start_localizes_link_anchors(tmp_path: Path) -> None:
     target = tmp_path / "installation" / "en_US" / "recovery.md"
     assert target.read_text(encoding="utf-8") == (
         "# Local access\n"
-        "\n"
         "[here](../../premiers-pas/en_US/index.md#local-access)\n"
         "[here](#local-access)\n"
         "[elsewhere](https://example.com/page#accès-local)\n"
+        "## List ``info.json``\n"
+        "[link](#list-infojson)\n"
     )

@@ -196,8 +196,20 @@ class Translator:
         if fr_fragment not in fr_slugs:
             return None
         index = fr_slugs.index(fr_fragment)
-        lang_memory = self.__ensure_texts_translated(language, headings)
-        translated_headings = [lang_memory[h] for h in headings]
+
+        heading_segments = parsed_target.get_heading_segments()
+        translatable_texts = []
+        for segments in heading_segments:
+            for is_translatable, text in segments:
+                if is_translatable:
+                    translatable_texts.append(text)
+        lang_memory = self.__ensure_texts_translated(language, translatable_texts)
+
+        translated_headings = []
+        for segments in heading_segments:
+            parts = [lang_memory[text] if is_translatable else text for is_translatable, text in segments]
+            translated_headings.append("".join(parts))
+
         return dedup_slugs(translated_headings)[index]
 
     def _ensure_translation_exists(self, language: str, parsed_file: StructuredMarkdownFile) -> None:

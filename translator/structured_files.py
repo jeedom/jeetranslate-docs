@@ -82,6 +82,7 @@ class StructuredMarkdownFile():
         self.__parsed_source_lines: List[_Line] = []
         self.__src_lines = src_file.read_text(encoding="utf-8").splitlines()
         self.__headings: List[str] = []
+        self.__heading_segments: List[List[Tuple[bool, str]]] = []
 
     @property
     def src_file(self) -> Path:
@@ -89,6 +90,10 @@ class StructuredMarkdownFile():
 
     def get_headings(self) -> List[str]:
         return self.__headings
+
+    def get_heading_segments(self) -> List[List[Tuple[bool, str]]]:
+        """Same headings as get_headings(), but as (is_translatable, text) segments."""
+        return self.__heading_segments
 
     def parse(self):
         self._in_front_matter: bool = False
@@ -198,8 +203,10 @@ class StructuredMarkdownFile():
         heading = HEADING_RE.match(stripped)
         if heading:
             rest = heading.group(2).strip()
+            rest_segments = self.__split_protected(rest)
             self.__headings.append(rest)
-            self.__add_segments_line([(False, heading.group(1))] + self.__split_protected(rest))
+            self.__heading_segments.append(rest_segments)
+            self.__add_segments_line([(False, heading.group(1))] + rest_segments)
             return
 
         list_item = LIST_RE.match(stripped)
