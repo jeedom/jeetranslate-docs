@@ -2,7 +2,9 @@
 
 A composite GitHub Action that translates Markdown documentation with DeepL and proposes changes through a pull request.
 
-[![Tests](https://github.com/Mips2648/docs-translations/actions/workflows/pytest.yml/badge.svg)](https://github.com/Mips2648/docs-translations/actions/workflows/pytest.yml)
+[![Tests](https://github.com/jeedom/jeetranslate-docs/actions/workflows/pytest.yml/badge.svg)](https://github.com/jeedom/jeetranslate-docs/actions/workflows/pytest.yml)
+
+Fork of [Mips2648/docs-translations](https://github.com/Mips2648/docs-translations), see [Differences from upstream](#differences-from-upstream) below.
 
 ## How It Works
 
@@ -100,11 +102,11 @@ jobs:
   translate:
     runs-on: ubuntu-latest
     steps:
-      - uses: Mips2648/docs-translations@v3
+      - uses: jeedom/jeetranslate-docs@main
         with:
           deepl_api_key: ${{ secrets.DEEPL_API_KEY }}
           target_languages: "en_US,es_ES,de_DE"
-          documents_roots: "arlo,portainer"
+          documents_roots: "compatibility,concept,contribute,dev,home,howto,howtoadvance,installation,legal_notice,mobile,premiers-pas,presentation"
           memory_path: ${{ github.workspace }}/.translation_memory
 ```
 
@@ -141,7 +143,7 @@ jobs:
   translate:
     runs-on: ubuntu-latest
     steps:
-      - uses: Mips2648/docs-translations@v3
+      - uses: jeedom/jeetranslate-docs@main
         with:
             deepl_api_key: ${{ secrets.DEEPL_API_KEY }}
             target_languages: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.target_languages || 'en_US,es_ES,de_DE' }}
@@ -165,7 +167,7 @@ jobs:
 - Translations are written alongside each discovered source folder: `<parent_of_source_language_folder>/<target_language>`.
 - Translation memory is stored as JSON, one file per language (`<language>.json`).
 - If no files change, the PR creation step does not create a PR.
-- This workflow does not create a glossary due to the limitation on deepl free account on which only one glossary is allowed. So it is assumed that you also use the action `Mips2648/plugins-translations` and that the glossary has been already created by this action.
+- This workflow does not create a glossary due to the limitation on deepl free account on which only one glossary is allowed. So it is assumed that you also use the action `jeedom/jeetranslate` and that the glossary has been already created by this action.
 
 ### Front Matter
 
@@ -210,3 +212,12 @@ The action uses `peter-evans/create-pull-request` with:
 - commit message: `chore(docs): update translations`
 
 The PR includes changes from all processed roots in the run.
+
+## Differences from upstream
+
+This fork adds the following on top of [Mips2648/docs-translations](https://github.com/Mips2648/docs-translations):
+
+- **Mid-line content protection.** Upstream only protects a link/image when it makes up the *entire* line (`^[text](url)$`). This fork protects links, images, clickable images (`[![alt](img)](link)`), inline code spans, bare URLs, and Jekyll/Liquid and HTML tags **anywhere** in a line, not just when they constitute the whole line.
+- **Internal doc-link language localization.** A link to `doc.jeedom.com` or to any configured `documents_roots` entry that's hardcoded to the source language gets that language segment rewritten to match each output language (e.g. `doc.jeedom.com/contribute/fr_FR/beta` → `.../en_US/beta` when generating `en_US`).
+- **Heading-anchor translation.** A link's `#anchor` fragment (same-page or cross-file) is resolved against the target heading, translated, and re-slugified to match kramdown's own id generation, instead of staying hardcoded to the source-language anchor text.
+
